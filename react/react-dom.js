@@ -3,10 +3,12 @@
 //   下一个工作单元 = 执行工作单元(下一个工作单元)
 // }
 
-// 执行流程：外部调用render(初始化设置) -> requestIdleCallback -> workLoop -> nextUnitOfWork -> performUnitOfWork
+// 大执行流程：外部调用render(初始化设置) -> requestIdleCallback -> workLoop -> nextUnitOfWork -> performUnitOfWork
 
 // 下一个工作单元
 let nextUnitOfWork = null;
+// 根节点
+let wipRoot = null;
 
 /**
  * @description: 将虚拟 DOM 转换为真实 DOM 并添加到容器中
@@ -17,13 +19,15 @@ let nextUnitOfWork = null;
 export function render(element, container) {
   // memo 是否要停止，进行整个fiber tree的优化
 
-  // 将根节点设置为第一个工作单元
-  nextUnitOfWork = {
+  wipRoot = {
     dom: container,
     props: {
       children: [element],
     },
   };
+
+  // 将根节点设置为第一个工作单元
+  nextUnitOfWork = wipRoot;
 }
 
 /**
@@ -47,21 +51,43 @@ function createDom(fiber) {
 }
 
 /**
- * @description: 执行单元事件，并返回下一个单元事件
+ * @description: 处理提交的fiber tree，渲染为真实DOM
+ * @param {*} fiber
+ * @return {*}
+ */
+function commitWork(fiber) {
+  if (!fiber) {
+    return;
+  }
+  // 父级真实DOM
+  const domParent = fiber.parent.dom;
+  domParent.appendChild(fiber.dom);
+
+  // 递归处理子元素
+  commitWork(fiber.child);
+  // 递归处理兄弟元素
+  commitWork(fiber.sibling);
+}
+
+/**
+ * @description: 提交渲染任务
+ * @return {*}
+ */
+function commitRoot() {
+  commitWork(wipRoot.child);
+  wipRoot = null;
+}
+
+/**
+ * @description: 执行单元事件，并返回下一个单元事件，构建虚拟DOM fiber tree
  * @return {*} 下一个fiber单元事件
  */
 function performUnitOfWork(fiber) {
-  // debugger;
   if (!fiber.dom) {
     // 创建真实DOM
     fiber.dom = createDom(fiber);
   }
 
-  if (fiber.parent) {
-    // 向父级DOM节点追加元素
-    fiber.parent.dom.appendChild(fiber.dom);
-  }
-  // debugger;
   const elements = fiber.props.children;
 
   // 索引
@@ -116,6 +142,10 @@ function workLoop(deadline) {
     nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
     // 帧剩余时间小于1ms，停止任务
     shouldYield = deadline.timeRemaining() < 1;
+  }
+  // 单元任务全部处理完成，且有根节点，提交渲染任务
+  if (!nextUnitOfWork && wipRoot) {
+    commitRoot();
   }
   // 空闲时间执行任务，50ms调用一次，会一直执行下去，性能开销较大
   requestIdleCallback(workLoop);
