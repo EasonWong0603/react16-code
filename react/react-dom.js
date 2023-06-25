@@ -86,20 +86,38 @@ function updateDom(dom, prevProps, nextProps) {
 }
 
 /**
+ * @description: 提交阶段的删除节点
+ * @param {*} fiber
+ * @param {*} domParent
+ * @return {void}
+ */
+function commitDeletion(fiber, domParent) {
+  if (fiber.dom) {
+    domParent.removeChild(fiber.dom);
+  } else {
+    commitDeletion(fiber.child, domParent);
+  }
+}
+
+/**
  * @description: 处理提交的fiber tree，渲染为真实DOM
  * @param {*} fiber
  * @return {void}
  */
 function commitWork(fiber) {
-  // 父级真实DOM
-  const domParent = fiber.parent.dom;
+  // 函数组件没有真实DOM，需要找到父级真实DOM
+  let domParentFiber = fiber.parent;
+  while (!domParentFiber.dom) {
+    domParentFiber = domParentFiber.parent;
+  }
+  const domParent = domParentFiber.dom;
 
   // 处理新增节点标记
   if (fiber.effectTag === 'PLACEMENT' && (fiber.dom ?? false)) {
     domParent.appendChild(fiber.dom);
     // 处理删除节点标记
   } else if (fiber.effectTag === 'DELETION') {
-    domParent.removeChild(fiber.dom);
+    commitDeletion(fiber, domParent);
     // 处理更新属性
   } else if (fiber.effectTag === 'UPDATE' && (fiber.dom ?? false)) {
     updateDom(fiber.dom, fiber.alternate.props, fiber.props);
@@ -214,17 +232,44 @@ function reconcileChildren(wipFiber, elements) {
 }
 
 /**
- * @description: 执行单元事件，并返回下一个单元事件，构建虚拟DOM fiber tree
+ * @description: 更新函数式组件
  * @param {*} fiber
- * @return {*} 下一个fiber单元事件
+ * @return {*}
  */
-function performUnitOfWork(fiber) {
+function updateFunctionComponent(fiber) {
+  const children = [fiber.type(fiber.props)];
+  // 执行单元事件
+  reconcileChildren(fiber, children);
+}
+
+/**
+ * @description: 更新普通组件
+ * @param {*} fiber
+ * @return {void}
+ */
+function updateHostComponent(fiber) {
   if (!fiber.dom) {
     // 创建真实DOM
     fiber.dom = createDom(fiber);
   }
   // 执行单元事件
   reconcileChildren(fiber, fiber.props.children);
+}
+
+/**
+ * @description: 执行单元事件，并返回下一个单元事件，构建虚拟DOM fiber tree
+ * @param {*} fiber
+ * @return {*} 下一个fiber单元事件
+ */
+function performUnitOfWork(fiber) {
+  // 判断是否是函数组件
+  const isFunctionComponent = fiber.type instanceof Function;
+
+  if (isFunctionComponent) {
+    updateFunctionComponent(fiber);
+  } else {
+    updateHostComponent(fiber);
+  }
 
   // 深度优先，优先向下处理子元素
   if (fiber.child) {
