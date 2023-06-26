@@ -231,12 +231,59 @@ function reconcileChildren(wipFiber, elements) {
   }
 }
 
+let wipFiber = null;
+let hookIndex = null;
+/**
+ * @description: hooks: state
+ * @param {*} initialValue
+ * @return {*}
+ */
+export function useState(initialValue) {
+  const oldHook = wipFiber.alternate?.hooks?.[hookIndex];
+
+  const hook = {
+    state: oldHook ? oldHook.state : initialValue,
+    actions: [], // 清空本次的更新操作
+  };
+
+  // 批处理重新渲染前的更新操作，再返回state
+  const actions = oldHook ? oldHook.actions : [];
+  actions.forEach((action) => {
+    hook.state = action instanceof Function ? action(hook.state) : action;
+  });
+
+  // 单向链表存储hooks
+  wipFiber.hooks.push(hook);
+
+  hookIndex++;
+
+  function setState(action) {
+    // 更新操作加入操作队列中，下次重新渲染的时候统一处理
+    hook.actions.push(action);
+    // 只要修改wipRoot即可中断当前任务，重新渲染fiber tree
+    wipRoot = {
+      dom: currentRoot.dom,
+      props: currentRoot.props,
+      alternate: currentRoot,
+    };
+    deletions = [];
+    nextUnitOfWork = wipRoot;
+  }
+
+  return [hook.state, setState];
+}
+
 /**
  * @description: 更新函数式组件
  * @param {*} fiber
  * @return {*}
  */
 function updateFunctionComponent(fiber) {
+  // 组件内状态 初始化
+  wipFiber = fiber;
+  hookIndex = 0;
+  wipFiber.hooks = [];
+
   const children = [fiber.type(fiber.props)];
   // 执行单元事件
   reconcileChildren(fiber, children);
